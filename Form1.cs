@@ -9,6 +9,8 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Gma.System.MouseKeyHook;
 using System.Data.SQLite;
+using static System.Net.Mime.MediaTypeNames;
+
 
 
 
@@ -26,16 +28,9 @@ namespace popup
         {
             this.TopMost = true;
             InitializeComponent();
-            // Call methods on form load
-            //CreateTable();
-            //InsertData("Alice", 25);
-            //ShowData();
-            // Pass the ListBox and the parent Form to the customizer
+            CreateTable();
+            ShowData();
             new ClipHistoryCustomizer(ClipHistory, this);
-
-
-
-
 
 
             // Start the global hook
@@ -65,17 +60,18 @@ namespace popup
         }
 
         // InsertData: Inserts a record into the Users table
-        private void InsertData(string clipData)
+        private async Task InsertDataAsync(string clipData)
         {
             using (SQLiteConnection conn = new SQLiteConnection(connectionString))
             {
-                conn.Open();
+                await conn.OpenAsync();
                 string sql = "INSERT INTO ClipDataTable (clipData) VALUES (@clipData)";
                 SQLiteCommand cmd = new SQLiteCommand(sql, conn);
                 cmd.Parameters.AddWithValue("@clipData", clipData);
-                cmd.ExecuteNonQuery();
+                await cmd.ExecuteNonQueryAsync();
             }
         }
+
 
         // ShowData: Retrieves all records and displays them in MessageBoxes
         private void ShowData()
@@ -83,17 +79,22 @@ namespace popup
             using (SQLiteConnection conn = new SQLiteConnection(connectionString))
             {
                 conn.Open();
-                string sql = "SELECT * FROM ClipDataTable";
+                string sql = "SELECT clipData FROM ClipDataTable ORDER BY ROWID DESC LIMIT 1";
                 SQLiteCommand cmd = new SQLiteCommand(sql, conn);
-                SQLiteDataReader reader = cmd.ExecuteReader();
+                var result = cmd.ExecuteScalar();
 
-                while (reader.Read())
+                if (result != null)
                 {
-                    MessageBox.Show($"ID: {reader["Id"]}, Name: {reader["Name"]}, Age: {reader["Age"]}");
-
+                    string clipData = result.ToString();
+                    if (!ClipHistory.Items.Contains(clipData))
+                    {
+                        ClipHistory.Items.Add(clipData);
+                        clipboardHistory.Add(clipData);
+                    }
                 }
             }
         }
+
 
 
         //------database end--------------------------
@@ -108,24 +109,13 @@ namespace popup
         }
 
         // Add items to the ClipboardHistory list
-        private void ClipboardTimer_Tick(object sender, EventArgs e)
+        private async void ClipboardTimer_Tick(object sender, EventArgs e)
         {
             string clipboardText = Clipboard.GetText();
-            if(!string.IsNullOrEmpty(clipboardText) && (clipboardHistory.Count == 0 || !clipboardHistory.Contains(clipboardText)))
+            if (!string.IsNullOrEmpty(clipboardText) && (clipboardHistory.Count == 0 || !clipboardHistory.Contains(clipboardText)))
             {
-                clipboardHistory.Add(clipboardText);
-
-                UpdateClipboardHistoryUI();
-            }
-        }
-
-        // Update the lsitBox (ClipHistory)
-        private void UpdateClipboardHistoryUI()
-        {
-            ClipHistory.Items.Clear();
-            foreach (var text in clipboardHistory)
-            {
-                ClipHistory.Items.Add(text);
+                await InsertDataAsync(clipboardText);
+                ShowData();
             }
         }
 
@@ -164,14 +154,20 @@ namespace popup
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
-            // Clean up the global hook
-            if (_globalHook != null)
+            try
             {
-                _globalHook.KeyDown -= OnGlobalKeyDown;
-                _globalHook.Dispose();
+                if (_globalHook != null)
+                {
+                    _globalHook.KeyDown -= OnGlobalKeyDown;
+                    _globalHook.Dispose();
+                }
             }
-            base.OnFormClosed(e);
+            finally
+            {
+                base.OnFormClosed(e);
+            }
         }
+
 
         // -----------------------------------------------------------
 
